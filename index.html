@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Engenho Colonial 3D</title>
+<style>
+:root{--bg:#fffaf0;--fg:#2b2118;--ac:#a8561f;--pn:rgba(255,250,240,.95);--mu:#6b5a48}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1c1712;--fg:#f3e9dc;--ac:#c9783a;--pn:rgba(28,23,18,.95);--mu:#b9a68f}}
+:root[data-theme="dark"]{--bg:#1c1712;--fg:#f3e9dc;--ac:#c9783a;--pn:rgba(28,23,18,.95);--mu:#b9a68f}
+html,body{height:100%;margin:0;overflow:hidden;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif}
+#ui{position:fixed;left:0;right:0;bottom:0;padding:8px 8px calc(8px + env(safe-area-inset-bottom,0px));display:flex;justify-content:center;pointer-events:none}
+#card{pointer-events:auto;background:var(--pn);border-radius:14px;padding:12px 14px;width:100%;max-width:680px;box-sizing:border-box;box-shadow:0 4px 18px rgba(0,0,0,.3);backdrop-filter:blur(8px)}
+.row{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:8px;flex-wrap:wrap}
+#tx{margin:8px 0 0;font-size:15px;line-height:1.45;max-height:30vh;overflow:auto}
+#sc{font-size:12px;background:var(--ac);color:#fff;border-radius:99px;padding:2px 10px}
+button{background:var(--ac);color:#fff;border:0;border-radius:10px;padding:10px 14px;font-size:15px;min-height:44px;cursor:pointer;transition:transform 0.1s}
+button:active{transform:scale(0.96)}
+button.s{background:transparent;color:var(--fg);border:1px solid var(--mu)}button.s.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+button:disabled{opacity:.5;pointer-events:none}#ct{color:var(--mu);font-size:13px}
+.q{margin-top:8px;font-size:14px}.q button{margin:4px 4px 0 0;min-height:36px;padding:6px 10px;font-size:14px}
+</style></head><body>
+<div id="ui"><div id="card">
+<div class="row" style="margin:0"><b id="t"></b><span id="sc"></span></div>
+<p id="tx"></p><div id="quiz" hidden></div>
+<div class="row"><button id="pv">◀ Anterior</button><span id="ct"></span><button id="nx">Próximo ▶</button></div>
+<div class="row"><span style="font-size:13px;color:var(--mu)">Escala:</span>
+<button class="s" data-s="2">Micro</button><button class="s" data-s="0">Meso</button><button class="s" data-s="8">Macro</button>
+<button id="vr" disabled>VR…</button></div></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const T3=THREE,$=id=>document.getElementById(id);
+const scene=new T3.Scene();scene.background=new T3.Color(0x7ec0ee);scene.fog=new T3.Fog(0x7ec0ee,150,600);
+const cam=new T3.PerspectiveCamera(65,innerWidth/innerHeight,.1,1500),rig=new T3.Group();rig.add(cam);scene.add(rig);
+
+const R=new T3.WebGLRenderer({antialias:true, powerPreference:"high-performance"});
+R.setPixelRatio(Math.min(devicePixelRatio,2));R.setSize(innerWidth,innerHeight);R.xr.enabled=true;
+R.shadowMap.enabled=true;R.shadowMap.type=T3.PCFSoftShadowMap;R.outputEncoding=T3.sRGBEncoding;
+const cv=R.domElement;cv.style.cssText='position:fixed;top:0;left:0;touch-action:none';document.body.prepend(cv);
+
+scene.add(new T3.HemisphereLight(0xffffff,0x4f6e35,.5));
+const sun=new T3.DirectionalLight(0xffeedd,1.2);
+sun.position.set(150,200,100);sun.castShadow=true;
+sun.shadow.mapSize.width=2048;sun.shadow.mapSize.height=2048;
+const shD=150; sun.shadow.camera.left=-shD;sun.shadow.camera.right=shD;sun.shadow.camera.top=shD;sun.shadow.camera.bottom=-shD;
+sun.shadow.camera.near=1;sun.shadow.camera.far=600;sun.shadow.bias=-0.0007;
+scene.add(sun); scene.add(new T3.AmbientLight(0xffffff, 0.2));
+
+const texCache={};
+const getTex=(type,hex,rep)=>{
+    const k=type+hex+rep; if(texCache[k])return texCache[k];
+    const c=document.createElement('canvas');c.width=256;c.height=256;
+    const ctx=c.getContext('2d');ctx.fillStyle=hex;ctx.fillRect(0,0,256,256);
+    if(type==='grass'){
+        ctx.fillStyle='#000';
+        for(let i=0;i<6000;i++){ctx.globalAlpha=Math.random()*.15;ctx.fillRect(Math.random()*256,Math.random()*256,2,2)}
+    }else if(type==='wood'){
+        ctx.fillStyle='#000';
+        for(let i=0;i<200;i++){ctx.globalAlpha=Math.random()*.25;ctx.fillRect(Math.random()*256,0,Math.random()*4+1,256)}
+    }else if(type==='plaster'){
+        ctx.fillStyle='#000';
+        for(let i=0;i<4000;i++){ctx.globalAlpha=Math.random()*.08;ctx.fillRect(Math.random()*256,Math.random()*256,3,3)}
+    }else if(type==='roof'){
+        ctx.fillStyle='#000';
+        for(let i=0;i<256;i+=16){ctx.globalAlpha=.3;ctx.fillRect(0,i,256,3);for(let j=0;j<256;j+=16)ctx.fillRect(j+(i%32)/2,i,2,16)}
+    }else if(type==='water'){
+        ctx.fillStyle='#fff';
+        for(let i=0;i<120;i++){ctx.globalAlpha=Math.random()*.15;ctx.fillRect(Math.random()*256,Math.random()*256,Math.random()*40+10,2)}
+    }
+    const t=new T3.CanvasTexture(c);t.wrapS=t.wrapT=T3.RepeatWrapping;t.repeat.set(rep,rep);
+    texCache[k]=t; if(type==='water') window.waterTex=t; return t;
+};
+
+const mat=(c,type,r=.8,m=.1)=>{
+    let hex='#'+c.toString(16).padStart(6,'0'),t=null,rep=2;
+    if(type==='grass_large'){type='grass';rep=80}
+    if(type==='water_large'){type='water';rep=40}
+    if(type)t=getTex(type,hex,rep);
+    if(type==='water')return new T3.MeshStandardMaterial({color:c,map:t,roughness:.1,metalness:.8,transparent:true,opacity:.85});
+    return new T3.MeshStandardMaterial({color:c,map:t,roughness:r,metalness:m});
+};
+
+const box=(w,h,d,c,x,y,z,p,t)=>{const m=new T3.Mesh(new T3.BoxGeometry(w,h,d),mat(c,t||'wood'));m.position.set(x,y+h/2,z);m.castShadow=m.receiveShadow=true;(p||scene).add(m);return m};
+const cyl=(r,h,c,x,y,z,p,s,t)=>{const m=new T3.Mesh(new T3.CylinderGeometry(r,r,h,s||12),mat(c,t||'wood'));m.position.set(x,y+h/2,z);m.castShadow=m.receiveShadow=true;(p||scene).add(m);return m};
+const roof=(w,d,h,c,x,y,z)=>{const g=new T3.Group(),m=new T3.Mesh(new T3.ConeGeometry(.7071,1,4),mat(c,'roof'));m.rotation.y=Math.PI/4;m.castShadow=m.receiveShadow=true;g.add(m);g.scale.set(w,h,d);g.position.set(x,y+h/2,z);scene.add(g)};
+const plane=(w,h,c,x,y,z,t)=>{const m=new T3.Mesh(new T3.PlaneGeometry(w,h),mat(c,t));m.rotation.x=-Math.PI/2;m.position.set(x,y,z);m.receiveShadow=true;scene.add(m)};
+
+const person=(x,z,c)=>{
+    const g=new T3.Group();g.position.set(x,0,z);
+    const t=new T3.Mesh(new T3.CylinderGeometry(.15,.12,.7,8),mat(c,'plaster'));t.position.y=.95;t.castShadow=true;g.add(t);
+    const h=new T3.Mesh(new T3.SphereGeometry(.14,16,12),mat(0x4a2a18,'plaster',.6,.1));h.position.y=1.45;h.castShadow=true;g.add(h);
+    const lMat=mat(0x333333,'plaster');
+    const l1=new T3.Mesh(new T3.CylinderGeometry(.06,.05,.6,8),lMat);l1.position.set(-.07,.3,0);l1.castShadow=true;g.add(l1);
+    const l2=new T3.Mesh(new T3.CylinderGeometry(.06,.05,.6,8),lMat);l2.position.set(.07,.3,0);l2.castShadow=true;g.add(l2);
+    const aMat=mat(0x4a2a18,'plaster');
+    const a1=new T3.Mesh(new T3.CylinderGeometry(.04,.03,.5,8),aMat);a1.position.set(-.2,.95,0);a1.rotation.z=.3;a1.castShadow=true;g.add(a1);
+    const a2=new T3.Mesh(new T3.CylinderGeometry(.04,.03,.5,8),aMat);a2.position.set(.2,.95,0);a2.rotation.z=-.3;a2.castShadow=true;g.add(a2);
+    scene.add(g);
+};
+
+// terreno, rio, canal
+plane(1600,1600,0x4f6e35,0,0,0,'grass_large');
+plane(1600,60,0x2a6078,0,.05,100,'water_large');
+plane(6,140,0x2a6078,39,.06,0,'water_large');
+
+// Casa-Grande + capela
+const cg=[-40,-8];box(24,1,12,0xa39a8c,cg[0],0,cg[1],'plaster');box(20,5.5,10,0xf3ecdc,cg[0],1,cg[1],'plaster');roof(25,15,5,0x8a3e20,cg[0],6.5,cg[1]);
+for(let i=0;i<6;i++){cyl(.25,5.5,0x5c3a21,cg[0]-9+i*3.6,1,cg[1]+6.2,null,8,'wood');box(1.2,2,.1,0x3a2312,cg[0]-8+i*3.2,2,cg[1]+5.02,'wood')}
+box(10,.3,2,0x5c3a21,cg[0],6.4,cg[1]+6.2,'wood');
+box(8,6,9,0xf3ecdc,-64,0,-8,'plaster');roof(9,10,4,0x8a3e20,-64,6,-8);box(2,3,2,0xf3ecdc,-64,10,-8,'plaster');box(.3,2,.3,0x222222,-64,13,-8,'plaster');box(1.2,.3,.3,0x222222,-64,12,-8,'plaster');
+
+// Senzala
+box(36,3,.4,0x967c52,-30,0,-42,'wood');box(.4,3,8,0x967c52,-48,0,-38,'wood');box(.4,3,8,0x967c52,-12,0,-38,'wood');roof(38,10,3.2,0x6a4a2a,-30,3,-38);
+for(let i=0;i<7;i++)cyl(.15,3,0x4a2a10,-47+i*5.8,0,-34,null,6,'wood');
+for(let i=0;i<8;i++){box(2.2,.35,.9,0xab8f5c,-45+i*4.5,0,-40,'wood');box(2.2,.35,.9,0xab8f5c,-45+i*4.5,0,-37.6,'wood')}
+const fire=new T3.Mesh(new T3.ConeGeometry(.5,1.2,8),new T3.MeshBasicMaterial({color:0xff8a00}));
+fire.position.set(-30,.6,-36);scene.add(fire);
+window.fireL=new T3.PointLight(0xff7a1a,1.5,25);window.fireL.position.set(-30,2,-36);scene.add(window.fireL);
+person(-38,-35,0x8a4b2a);person(-22,-36,0x5b6b8a);
+
+// Canavial
+const N=1800,im=new T3.InstancedMesh(new T3.CylinderGeometry(.06,.1,3.2,6),mat(0x5a8226,'grass'),N),dm=new T3.Object3D();
+im.castShadow=im.receiveShadow=true; const tmpC=new T3.Color();
+for(let i=0;i<N;i++){
+    dm.position.set(70+(i%36)*1.9+Math.random()*.6,1.6,-80+((i/36)|0)*1.9+Math.random()*.6);
+    dm.scale.set(1,.85+Math.random()*.4,1); dm.rotation.y=Math.random()*Math.PI; dm.rotation.z=(Math.random()-.5)*.1;
+    dm.updateMatrix();im.setMatrixAt(i,dm.matrix);
+    tmpC.setHex(0x5a8226);tmpC.offsetHSL(Math.random()*.06-.03,Math.random()*.1,Math.random()*.1-.05);im.setColorAt(i,tmpC);
+}scene.add(im);
+[[66,-20],[66,-30],[68,-45]].forEach((p,i)=>person(p[0],p[1],[0xb5651d,0x7a6a4a,0xa04a3a][i]));
+box(3,.4,2,0x5c3a21,58,.9,-18,'wood');box(2.4,1,1.8,0x5a8226,58,1.3,-18,'grass');[-1.1,1.1].forEach(z=>{const w=cyl(.8,.15,0x3a2312,58,.1,-18+z,null,12,'wood');w.rotation.x=Math.PI/2;w.position.y=.9});
+box(1.8,1.2,.7,0x6b4a2a,52,.4,-18,'wood');
+
+// Moenda hidráulica + roda d'água
+box(16,7,12,0xdbc8a0,28,0,-12,'plaster');roof(17,13,5,0x8a3e20,28,7,-12);
+cyl(.3,3,0x3a2312,39,3.4,-12,null,8,'wood').rotation.z=Math.PI/2;
+const wheel=new T3.Group();wheel.position.set(39,3.7,-12);scene.add(wheel);
+for(let i=0;i<12;i++){const pv=new T3.Group();pv.rotation.x=i/12*Math.PI*2;box(2,1.1,.25,0x5c3a21,0,3,0,pv,'wood');wheel.add(pv)}
+[-.9,.9].forEach(x=>{const r=new T3.Mesh(new T3.TorusGeometry(3.4,.12,6,32),mat(0x3a2312,'wood'));r.rotation.y=Math.PI/2;r.position.x=x;r.castShadow=r.receiveShadow=true;wheel.add(r)});
+person(24,-4,0xb5651d);
+
+// Moenda de tração animal
+[[-5,-5],[5,-5],[-5,5],[5,5]].forEach(p=>cyl(.25,5,0x4a2a10,30+p[0],0,-45+p[1],null,8,'wood'));roof(13,13,3,0x6a4a2a,30,5,-45);
+cyl(.5,4,0x5c3a21,30,0,-45,null,10,'wood');
+const mill=new T3.Group();mill.position.set(30,0,-45);scene.add(mill);box(10,.3,.3,0x4a2a10,0,1.3,0,mill,'wood');[-4.3,4.3].forEach(x=>{box(.7,1.2,1.6,0x6b4a2a,x,0,0,mill,'wood')});
+
+// Casa das caldeiras
+box(12,6,10,0xdbc8a0,52,0,-10,'plaster');roof(13,11,4,0x8a3e20,52,6,-10);cyl(.8,11,0x5a3f2f,57,0,-14,null,10,'plaster');
+[0,1,2].forEach(i=>cyl(.9,.7,0x99511c,47+i*2.2,0,-3.5,null,16,'wood'));
+
+// Casa de purgar (aberta na frente) com formas de barro
+box(26,6,.5,0xdbc8a0,10,0,22,'plaster');box(.5,6,12,0xdbc8a0,-3,0,28,'plaster');box(.5,6,12,0xdbc8a0,23,0,28,'plaster');roof(27,13,4,0x8a3e20,10,6,28);
+for(let r=0;r<3;r++)for(let i=0;i<12;i++){const f=new T3.Mesh(new T3.ConeGeometry(.45,1.1,10),mat(0xa65b32,'plaster'));f.rotation.x=Math.PI;f.position.set(-1+i*2,1.1,25+r*2.6);f.castShadow=f.receiveShadow=true;scene.add(f)}
+for(let r=0;r<3;r++)box(24,.5,1,0x4a2a10,10,.2,25+r*2.6,'wood');person(10,31,0xa04a3a);
+
+// Cais, barcaça e navio
+box(5,.4,24,0x5c3a21,15,.1,70,'wood');person(15,66,0x8a4b2a);person(16,74,0x5b6b8a);
+const barge=new T3.Group();box(4,1,10,0x4a2a10,0,0,0,barge,'wood');for(let i=0;i<6;i++)box(1.1,1.1,1.1,0xd9ccb0,(i%2)*1.3-.65,1,((i/2)|0)*1.4-1.4,barge,'wood');barge.position.set(21,.2,85);scene.add(barge);
+const ship=new T3.Group();box(7,3,20,0x3a2312,0,0,0,ship,'wood');box(5,4,5,0x4a2a10,0,3,8,ship,'wood');
+[-4,4].forEach(z=>{cyl(.25,18,0x2a1608,0,3,z,ship,8,'wood');box(10,8,.15,0xf2ead7,0,8,z+.3,ship,'plaster')});ship.position.set(5,.3,108);scene.add(ship);
+
+// Mapa atlântico (escala macro)
+const mc=document.createElement('canvas');mc.width=1024;mc.height=768;const g=mc.getContext('2d');
+const P=(lo,la)=>[(lo+90)/120*1024,(55-la)/90*768];
+g.fillStyle='#1e4663';g.fillRect(0,0,1024,768);
+g.strokeStyle='rgba(255,255,255,0.06)';g.lineWidth=1;
+for(let i=0;i<=1024;i+=48){g.beginPath();g.moveTo(i,0);g.lineTo(i,768);g.stroke()}
+for(let i=0;i<=768;i+=48){g.beginPath();g.moveTo(0,i);g.lineTo(1024,i);g.stroke()}
+const poly=(a,c)=>{
+    g.fillStyle=c;g.strokeStyle='#8a723a';g.lineWidth=2;g.beginPath();
+    a.forEach((q,i)=>{const p=P(q[0],q[1]);i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1])});
+    g.closePath();g.fill();g.stroke()
+};
+poly([[-77,8],[-72,12],[-62,10],[-52,5],[-50,0],[-35,-5],[-35,-9],[-39,-15],[-41,-22],[-48,-26],[-53,-34],[-58,-38],[-65,-41],[-68,-52],[-74,-45],[-72,-30],[-70,-18],[-76,-14],[-81,-5],[-80,0]],'#c9b27a');
+poly([[-6,35],[-10,30],[-17,21],[-17,14],[-13,8],[-8,4],[4,6],[9,4],[9,-1],[13,-6],[12,-15],[14,-22],[18,-34],[30,-36],[30,35]],'#b8a36a');
+poly([[-9,37],[-9,43],[-1,44],[-4,48],[2,51],[5,53.5],[9,56],[30,56],[30,38],[12,38],[5,36],[-5,36]],'#a89a6a');
+const C={Recife:[-34.9,-8],Lisboa:[-9.1,38.7],Amsterdã:[4.9,52.4],Luanda:[13.2,-8.8]};
+const route=(a,b,col,bend)=>{
+    const A=P(...C[a]),B=P(...C[b]);
+    g.strokeStyle=col;g.lineWidth=4;g.setLineDash([12,8]);g.beginPath();
+    g.moveTo(...A);g.quadraticCurveTo((A[0]+B[0])/2,(A[1]+B[1])/2+bend,...B);g.stroke();g.setLineDash([])
+};
+route('Luanda','Recife','#ff6b5e',50);route('Recife','Lisboa','#ffd54a',-40);route('Recife','Amsterdã','#ffffff',-110);
+g.font='bold 26px sans-serif';g.lineWidth=4;
+for(const k in C){
+    const p=P(...C[k]);g.fillStyle='#fff';g.beginPath();g.arc(p[0],p[1],7,0,7);g.fill();
+    g.strokeStyle='#222';g.strokeText(k,p[0]+12,p[1]+8);g.fillText(k,p[0]+12,p[1]+8)
+}
+g.fillStyle='rgba(20,15,10,.8)';g.fillRect(10,598,560,160);
+g.font='bold 26px sans-serif';g.fillStyle='#f0d79c';g.fillText('O Atlântico, séc. XVII',24,632);
+g.font='22px sans-serif';
+g.fillStyle='#ff6b5e';g.fillText('— Africanos escravizados (Luanda → Recife)',24,672);
+g.fillStyle='#ffd54a';g.fillText('— Açúcar → Lisboa',24,706);
+g.fillStyle='#fff';g.fillText('— Açúcar → Amsterdã (1630–1654)',24,740);
+
+box(84,62,1.2,0x4a3320,400,0,-1,'wood');
+const mp=new T3.Mesh(new T3.PlaneGeometry(80,60),new T3.MeshBasicMaterial({map:new T3.CanvasTexture(mc)}));mp.position.set(400,31,-.3);scene.add(mp);
+box(1.4,31,1.4,0x4a3320,380,0,-1,'wood');box(1.4,31,1.4,0x4a3320,420,0,-1,'wood');
+
+// Trilha de aprendizagem
+const S=[
+{n:'Visão geral do engenho',sc:'Meso',t:[20,3,-10],d:170,y:.35,p:.5,x:'Bem-vindo! Este modelo reconstrói um engenho de açúcar do Nordeste no século XVII: um complexo que unia lavoura, fábrica, moradia e porto. Siga a trilha com “Próximo” ou mude a escala de observação: Micro (senzala), Meso (engenho) e Macro (rotas atlânticas). Arraste para girar; role ou use pinça para o zoom.'},
+{n:'1 · Casa-Grande e capela',sc:'Meso',t:[-45,4,-8],d:48,y:.4,p:.25,x:'Moradia do senhor de engenho e de sua família, ao lado da capela: centro do poder econômico, político e religioso do engenho. Note a varanda e o telhado de quatro águas. O par “casa-grande e senzala” é discutido pela historiografia, pois nem toda moradia de pessoas escravizadas era um alojamento coletivo.'},
+{n:'2 · Senzala',sc:'Micro',t:[-30,1.5,-38],d:17,y:.12,p:.15,x:'Escala micro: o alojamento das pessoas escravizadas, africanas e seus descendentes. Observe os estrados, o fogo e o espaço reduzido. Reflita: quem sustentava cada etapa da produção, do corte da cana ao embarque? O trabalho escravizado era a base de todo o sistema.'},
+{n:'3 · Canavial',sc:'Meso',t:[100,2,-30],d:60,y:.6,p:.35,x:'Etapa 1: plantio e corte. O corte era manual, feito por pessoas escravizadas, e a cana seguia em carros de boi até a moenda logo após o corte, pois o caldo se deteriora rápido.'},
+{n:'4 · Moenda',sc:'Meso',t:[30,3,-28],d:75,y:.9,p:.3,x:'Etapa 2: moagem. Rolos esmagam a cana e extraem o caldo (garapa). Dois modelos: o engenho hidráulico, movido por roda d’água (edifício com a roda e o canal), e o de tração animal, em que bois giram uma viga (abrigo ao fundo). O hidráulico exigia mais investimento e tendia a ser mais produtivo.'},
+{n:'5 · Casa das caldeiras',sc:'Meso',t:[52,3,-10],d:32,y:.6,p:.3,x:'Etapa 3: cozimento. O caldo é aquecido e clarificado em caldeiras de cobre, evaporando água até virar melado. Trabalho duro e perigoso, em calor intenso, com fornalhas alimentadas por lenha.'},
+{n:'6 · Casa de Purgar',sc:'Meso',t:[10,3,26],d:34,y:.1,p:.2,x:'Etapa 4: purga. O melado é colocado em formas de barro cônicas; barro úmido por cima ajuda a escorrer o melaço e clarear o açúcar. Depois, o “pão” era seco, quebrado, classificado e encaixotado.'},
+{n:'7 · Rio e embarque',sc:'Meso',t:[20,2,82],d:58,y:.5,p:.3,x:'Etapa 5: escoamento. As caixas de açúcar iam por carros de boi e barcaças até o cais e eram embarcadas em navios rumo à Europa. O rio era a “estrada” que ligava o engenho ao Atlântico.'},
+{n:'8 · Rotas atlânticas',sc:'Macro',t:[400,31,0],d:80,y:0,p:.02,vy:22,x:'Escala macro: o açúcar do Nordeste seguia para Lisboa e, durante o domínio holandês (1630–1654), também para Amsterdã. No sentido contrário, navios traziam africanos escravizados, sobretudo da África Centro-Ocidental. O engenho era uma peça de um sistema atlântico.'},
+{n:'9 · Síntese',sc:'Meso',t:[20,3,-10],d:170,y:.35,p:.5,x:'Retome a cadeia: canavial → moenda → caldeiras → purga → rio e porto → Europa. Em VR, saia para ver o quiz na tela do computador ou tablet.'}];
+const Q=[['Qual etapa usava barro úmido sobre as formas para clarear o açúcar?',['Moenda','Casa das caldeiras','Casa de Purgar'],2],['O que movia a moenda de um engenho hidráulico?',['A força da água','O vento','O vapor'],0],['Qual foi uma das principais origens das pessoas escravizadas levadas a Pernambuco no século XVII?',['Índia','África Centro-Ocidental','Europa'],1]];
+$('quiz').innerHTML=Q.map((q,i)=>`<div class="q"><b>${q[0]}</b><br>`+q[1].map((o,j)=>`<button class="s" data-q="${i}" data-o="${j}">${o}</button>`).join('')+'</div>').join('');
+$('quiz').onclick=e=>{const b=e.target.closest('button');if(!b)return;const ok=+b.dataset.o===Q[b.dataset.q][2];b.textContent=(ok?'✓ ':'✗ ')+b.textContent.replace(/^[✓✗] /,'');b.classList.toggle('on',ok)};
+// Câmera (desktop/tablet): órbita suave
+const cur={t:new T3.Vector3(),d:170,yaw:.35,pit:.5},tg={t:new T3.Vector3(20,3,-10),d:170,yaw:.35,pit:.5};let ci=0;
+const clampD=d=>Math.min(400,Math.max(8,d));
+function place(){if(R.xr.isPresenting)return;const k=.08;cur.t.lerp(tg.t,k);cur.d+=(tg.d-cur.d)*k;cur.yaw+=(tg.yaw-cur.yaw)*k;cur.pit+=(tg.pit-cur.pit)*k;const c=Math.cos(cur.pit);cam.position.set(cur.t.x+cur.d*Math.sin(cur.yaw)*c,cur.t.y+cur.d*Math.sin(cur.pit),cur.t.z+cur.d*Math.cos(cur.yaw)*c);cam.lookAt(cur.t)}
+function vrPose(){const s=S[ci],h=s.d*Math.cos(s.p)*.6;rig.position.set(s.t[0]+h*Math.sin(s.y),s.d*Math.sin(s.p)*.6+(s.vy||0),s.t[2]+h*Math.cos(s.y));rig.rotation.y=s.y}
+// Painel dentro da VR
+const pc=document.createElement('canvas');pc.width=1024;pc.height=512;const px=pc.getContext('2d'),ptex=new T3.CanvasTexture(pc);
+const panel=new T3.Mesh(new T3.PlaneGeometry(1.6,.8),new T3.MeshBasicMaterial({map:ptex,transparent:true,depthTest:false}));panel.position.set(0,-.45,-1.4);panel.renderOrder=10;panel.visible=false;cam.add(panel);
+function drawPanel(){const s=S[ci];px.fillStyle='rgba(20,14,8,.9)';px.fillRect(0,0,1024,512);px.fillStyle='#f0b46a';px.font='bold 36px sans-serif';px.fillText(s.n+'  ['+s.sc+']',28,54);px.fillStyle='#fff';px.font='28px sans-serif';
+let ln='',y=100;for(const w of s.x.split(' ')){const t=ln?ln+' '+w:w;if(px.measureText(t).width>968){px.fillText(ln,28,y);y+=38;ln=w}else ln=t}px.fillText(ln,28,y);
+px.fillStyle='#b9a68f';px.font='23px sans-serif';px.fillText('Gatilho: próximo · Grip/B: anterior · A/X: trocar escala · '+(ci+1)+'/'+S.length,28,492);ptex.needsUpdate=true}
+function go(i){ci=Math.min(S.length-1,Math.max(0,i));const s=S[ci];tg.t.set(...s.t);tg.d=s.d;tg.yaw=s.y;tg.pit=s.p;
+$('t').textContent=s.n;$('sc').textContent=s.sc;$('tx').textContent=s.x;$('ct').textContent=(ci+1)+' / '+S.length;$('pv').disabled=!ci;$('nx').disabled=ci==S.length-1;$('quiz').hidden=ci!=S.length-1;
+document.querySelectorAll('[data-s]').forEach(b=>b.classList.toggle('on',+b.dataset.s==ci||(b.dataset.s==0&&ci==9)));if(R.xr.isPresenting)vrPose();drawPanel()}
+const SC=[2,0,8],cycle=()=>go(SC[(SC.indexOf(ci)+1)%3]);
+$('nx').onclick=()=>go(ci+1);$('pv').onclick=()=>go(ci-1);document.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>go(+b.dataset.s));
+addEventListener('keydown',e=>{if(e.key=='ArrowRight')go(ci+1);if(e.key=='ArrowLeft')go(ci-1)});
+// Entrada: mouse, toque e pinça
+const pts=new Map();let pd=0;const pinch=()=>{const a=[...pts.values()];return a.length<2?0:Math.hypot(a[0][0]-a[1][0],a[0][1]-a[1][1])};
+cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);pts.set(e.pointerId,[e.clientX,e.clientY]);pd=pinch()});
+cv.addEventListener('pointermove',e=>{if(!pts.has(e.pointerId))return;const o=pts.get(e.pointerId);pts.set(e.pointerId,[e.clientX,e.clientY]);
+if(pts.size==1){tg.yaw-=(e.clientX-o[0])*.006;tg.pit=Math.min(1.4,Math.max(.02,tg.pit+(e.clientY-o[1])*.005))}else if(pts.size==2){const n=pinch();if(pd&&n)tg.d=clampD(tg.d*pd/n);pd=n}});
+const up=e=>{pts.delete(e.pointerId);pd=0};cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+cv.addEventListener('wheel',e=>{e.preventDefault();tg.d=clampD(tg.d*(1+Math.sign(e.deltaY)*.1))},{passive:false});
+addEventListener('resize',()=>{cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();R.setSize(innerWidth,innerHeight)});
+// VR
+for(let i=0;i<2;i++){const c=R.xr.getController(i);c.addEventListener('select',()=>go(ci+1));c.addEventListener('squeezestart',()=>go(ci-1));const m=new T3.Mesh(new T3.CylinderGeometry(.01,.01,.12,6),mat(0xffd54a));m.rotation.x=Math.PI/2;c.add(m);rig.add(c)}
+R.xr.addEventListener('sessionstart',()=>{panel.visible=true;vrPose()});
+R.xr.addEventListener('sessionend',()=>{panel.visible=false;rig.position.set(0,0,0);rig.rotation.set(0,0,0)});
+const vr=$('vr');
+if(navigator.xr)navigator.xr.isSessionSupported('immersive-vr').then(ok=>{vr.disabled=!ok;vr.textContent=ok?'Entrar em VR':'VR indisponível aqui'}).catch(()=>{vr.textContent='VR indisponível aqui'});else vr.textContent='WebXR não suportado';
+vr.onclick=async()=>{if(R.xr.isPresenting){R.xr.getSession().end();return}
+try{R.xr.setReferenceSpaceType('local-floor');const s=await navigator.xr.requestSession('immersive-vr',{optionalFeatures:['local-floor','bounded-floor']});await R.xr.setSession(s)}catch(e){alert('Não foi possível iniciar a VR: '+e.message)}};
+const prev={};function poll(){const ss=R.xr.getSession();if(!ss)return;ss.inputSources.forEach((src,i)=>{const gp=src.gamepad;if(!gp)return;[4,5].forEach(b=>{const k=i+'_'+b,p=!!(gp.buttons[b]&&gp.buttons[b].pressed);if(p&&!prev[k]){b==4?cycle():go(ci-1)}prev[k]=p})})}
+go(0);cur.t.copy(tg.t);
+
+R.setAnimationLoop(t=>{
+    const s=t/1000;
+    wheel.rotation.x=s*.8;mill.rotation.y=s*.6;
+    fire.scale.y=1+Math.sin(s*9)*.15;
+    if(window.fireL) window.fireL.intensity = 1.5 + Math.sin(s*20)*0.3;
+    if(window.waterTex) window.waterTex.offset.x = s*0.02;
+    ship.position.y=.3+Math.sin(s)*.2;ship.rotation.z=Math.sin(s*.8)*.02;
+    barge.position.y=.2+Math.sin(s*1.3)*.08;
+    place();poll();R.render(scene,cam);
+});
+</script></body></html>
